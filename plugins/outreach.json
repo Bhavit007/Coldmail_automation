@@ -1,0 +1,261 @@
+{
+  "id": "outreachplug0001",
+  "name": "PLUGIN outreach: channels",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "6ae6042b-dfe8-4e50-b15d-7edc7cb97d7b",
+      "name": "Lead in",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a4aeef52-0fa7-4b20-a520-2aff6cc7d9b7",
+              "name": "test_mode",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "0da70b73-2753-4107-97d4-f390343eb4e2",
+              "name": "test_email",
+              "value": "mjbhavit1234@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "5295ad44-2d4d-426a-8ff4-0958bf1a99e9",
+              "name": "from_email",
+              "value": "mjbhavit1234@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "67a09503-4d1f-41ac-9270-7c2ed899de67",
+              "name": "sender_name",
+              "value": "Bhavit",
+              "type": "string"
+            },
+            {
+              "id": "fa919ee2-441d-46ac-8a17-f180e66e4dd3",
+              "name": "page_base_url",
+              "value": "http://localhost:5688",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2a5aec22-af59-454e-9b1f-af44baf803e3",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Plug-in input: one lead. One item per message: email is sent below, Instagram / Facebook go to the manual DM list.\nconst s = $('Settings').first().json;\nconst out = [];\nfor (const { json: l } of $input.all()) {\n  if (!l.id || !l.has_page) continue;\n  const link = `${String(s.page_base_url).replace(/\\/$/, '')}/webhook/page?id=${l.id}`;\n  const text = `Hi ${l.name} team! I made a free preview of a simple website for your business: ${link} - happy to put it live on your own domain if you like it. ${s.sender_name}`;\n  if (l.email) {\n    const to = s.test_mode ? s.test_email : l.email;\n    out.push({ json: { lead_id: l.id, channel: 'email', to,\n      subject: (s.test_mode ? `[TEST - real: ${l.email}] ` : '') + `A free website preview for ${l.name}`,\n      html: `<p>Hi ${l.name} team,</p><p>I put together a free preview of what a simple website for your business could look like:<br><a href=\"${link}\">${link}</a></p><p>If you like it, I can put it live on your own domain. Just reply to this email.</p><p>${s.sender_name}</p>`,\n      message: text } });\n  }\n  if (l.instagram) out.push({ json: { lead_id: l.id, channel: 'instagram', to: l.instagram, message: text } });\n  if (l.facebook) out.push({ json: { lead_id: l.id, channel: 'facebook', to: l.facebook, message: text } });\n}\nreturn out;\n"
+      },
+      "id": "0b3ed1b0-12b4-4ff3-b4ad-705935db1a31",
+      "name": "Prepare messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "03853bcc-18ac-4b88-aad2-5f0207f36672",
+              "leftValue": "={{ $json.channel === 'email' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6589f8f9-1a96-4cf3-8a5b-8a3d8c93d89e",
+      "name": "Is email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Settings').first().json.from_email }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "adf19f07-c6bd-4723-900b-bd094fab8e61",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        880,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Records whether each email was sent.\nconst sent = $('Is email?').all(0).map(i => i.json);\nreturn $input.all().map((item, i) => ({ json: { ...sent[i],\n  status: item.json.error ? 'failed' : 'sent',\n  message: item.json.error ? `${sent[i].subject}\\nError: ${item.json.error.message || item.json.error}` : sent[i].subject } }));\n"
+      },
+      "id": "25c1e7e7-c74d-4fd8-b891-6b7bb174e69f",
+      "name": "Email result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Instagram / Facebook can't be sent automatically yet: they go to the dashboard's manual DM list.\nreturn $input.all().map(i => ({ json: { ...i.json, status: 'queued' } }));\n"
+      },
+      "id": "f83b5e4c-7076-4e33-a84d-78b231ebeebb",
+      "name": "Manual DM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        100
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "09678c06-9433-4204-a6a2-bf272b23522f",
+      "name": "Messages out",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1320,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Lead in": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Prepare messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare messages": {
+      "main": [
+        [
+          {
+            "node": "Is email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is email?": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Manual DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Email result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email result": {
+      "main": [
+        [
+          {
+            "node": "Messages out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual DM": {
+      "main": [
+        [
+          {
+            "node": "Messages out",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
