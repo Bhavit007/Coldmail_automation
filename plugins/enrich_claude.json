@@ -1,0 +1,177 @@
+{
+  "id": "enrichclaude0001",
+  "name": "PLUGIN enrich: Claude",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "be63b173-64af-4b01-8156-f374d080977b",
+      "name": "Lead in",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ad9ebf91-2690-4e2f-b84e-6f0e7f3e2be7",
+              "name": "claude_model",
+              "value": "PASTE_CLAUDE_MODEL_ID",
+              "type": "string"
+            },
+            {
+              "id": "8eef9b94-7e90-47d5-9836-cda17b2c36b6",
+              "name": "enrichment_sources",
+              "value": "Instagram profile\nFacebook page and Facebook Marketplace\nAmazon seller / storefront\nOther marketplaces (JustDial, IndiaMART, Zomato, Swiggy, Flipkart, Meesho)\nGoogle Business Profile and Google search\nReddit\nTheir own website (if they have one)",
+              "type": "string"
+            },
+            {
+              "id": "2e829415-6776-4c09-9da3-a161e86c0987",
+              "name": "enrich_prompt",
+              "value": "Research this small business in India and collect public information about it.\n\nBusiness:\n{business}\n\nLook in these places (web search, then open the most useful pages):\n{sources}\n\nRules:\n- Search by phone number as well as name + area. Only use pages that clearly match this business.\n- Only report facts you actually found. Never guess or make up an email address.\n- Use null (or []) for anything you could not find. Do not log in anywhere.\n\nReply with only this JSON inside <json></json> tags:\n<json>{\n \"confirmed\": true or false,\n \"phone\": \"\", \"email\": \"\", \"instagram_url\": \"\", \"facebook_url\": \"\",\n \"other_profiles\": [\"marketplace or listing urls\"],\n \"rating\": number or null, \"review_count\": number or null,\n \"top_reviews\": [\"short quote, max 3\"],\n \"services\": [\"what they sell or offer\"], \"about\": \"2-3 sentences\",\n \"photo_urls\": [\"direct image urls, max 4\"],\n \"headline\": \"short website headline\", \"tagline\": \"one line\"\n}</json>",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a6f31ea6-7c14-4ec8-bce7-632cb65fd17f",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Claude request from this plug-in's own Settings.\nconst s = $json;\nconst business = JSON.stringify({ name: s.name, category: s.category, address: s.address,\n  phone: s.phone, website: s.website || null, email: s.email || null }, null, 2);\nreturn { json: { claude_body: {\n  model: s.claude_model, max_tokens: 4000,\n  tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 },\n          { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3 }],\n  messages: [{ role: 'user', content: s.enrich_prompt.split('{business}').join(business).split('{sources}').join(s.enrichment_sources) }] } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "7b08ac29-f98d-4fed-a8e6-18c4c0a28d72",
+      "name": "Build request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "web-fetch-2025-09-10"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claude_body) }}",
+        "options": {
+          "timeout": 300000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "de2d6d93-fdb3-41e1-bca2-b690fb640ab2",
+      "name": "Claude: enrich",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeJson = (r) => {\n  if (r.error) throw new Error(r.error.message || JSON.stringify(r.error));\n  const text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\n  const m = [...text.matchAll(/<json>([\\s\\S]*?)<\\/json>/g)].pop();\n  return JSON.parse(m ? m[1] : text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n};\n// Plug-in output: the lead exactly as it came in, plus `enrichment` (found data) or `error`.\nconst leads = $('Lead in').all().map(i => i.json);\nreturn $input.all().map((item, i) => {\n  try { return { json: { ...leads[i], enrichment: claudeJson(item.json) } }; }\n  catch (e) { return { json: { ...leads[i], error: e.message } }; }\n});\n"
+      },
+      "id": "7ae8eeef-1ec9-45a7-8304-d2ae9d65df6e",
+      "name": "Read result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Lead in": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Build request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build request": {
+      "main": [
+        [
+          {
+            "node": "Claude: enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: enrich": {
+      "main": [
+        [
+          {
+            "node": "Read result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

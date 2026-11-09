@@ -1,0 +1,52 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "9d26e609-fad2-44cc-bc4d-46e1a55e5b1d",
+      "name": "Enrich (plug-in)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const has = v => Array.isArray(v) ? v.some(x => has(x)) : v !== null && v !== undefined && String(v).trim() !== '';\nconst num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n\nconst page = (l, d) => {\n  const services = (d.services || []).filter(has);\n  const reviews = (d.top_reviews || []).filter(has).slice(0, 3);\n  const photo = (d.photo_urls || []).filter(has)[0];\n  const tel = String(d.phone || l.phone || '').replace(/[^\\d+]/g, '');\n  return `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\"><title>${esc(l.name)}</title><style>\nbody{margin:0;font-family:system-ui,sans-serif;color:#1d1d1f;line-height:1.6}section{max-width:960px;margin:auto;padding:40px 20px}\n.hero{background:#1f4b99 center/cover;color:#fff;text-align:center;padding:80px 20px}.hero h1{font-size:40px;margin:0 0 8px}\n.btn{display:inline-block;margin-top:20px;background:#fff;color:#1f4b99;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.card{border:1px solid #e5e5ea;border-radius:10px;padding:16px}\nfooter{text-align:center;color:#888;font-size:13px;padding:20px}</style></head><body>\n<div class=\"hero\"${photo ? ` style=\"background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url('${esc(photo)}')\"` : ''}>\n<h1>${esc(d.headline || l.name)}</h1><p>${esc(d.tagline || l.category || '')}</p>${tel ? `<a class=\"btn\" href=\"tel:${tel}\">Call ${esc(d.phone || l.phone)}</a>` : ''}</div>\n${d.about ? `<section><h2>About</h2><p>${esc(d.about)}</p></section>` : ''}\n${services.length ? `<section><h2>What we offer</h2><div class=\"grid\">${services.map(x => `<div class=\"card\">${esc(x)}</div>`).join('')}</div></section>` : ''}\n${reviews.length ? `<section><h2>What customers say${d.rating ? ` (${esc(d.rating)} stars)` : ''}</h2><div class=\"grid\">${reviews.map(x => `<div class=\"card\">&ldquo;${esc(x)}&rdquo;</div>`).join('')}</div></section>` : ''}\n<section><h2>Visit us</h2><p>${esc(l.address)}</p></section>\n<footer>Free concept preview for ${esc(l.name)}</footer></body></html>`;\n};\n\n// Scores what the enrichment plug-in found (10 points): 8+ build page, 5-7 review, below 5 rejected.\nreturn $input.all().map(({ json: r }) => {\n  const { enrichment: d, error, ...lead } = r;\n  if (error || !d) return { json: { ...lead, status: 'error', notes: `Enrichment: ${error || 'plug-in returned no data'}`.slice(0, 500) } };\n  const email = d.email || lead.email || '';\n  const score = (d.confirmed === true ? 1 : 0) + (has(d.phone || lead.phone) ? 1 : 0) + (has(email) ? 2 : 0)\n    + (has(d.instagram_url) ? 1 : 0) + (has(d.facebook_url) ? 1 : 0) + (has(d.other_profiles) ? 1 : 0)\n    + (num(d.rating) !== null && num(d.review_count) !== null ? 1 : 0)\n    + (has(d.services) || has(d.about) ? 1 : 0) + (has(d.photo_urls) ? 1 : 0);\n  const status = score >= 8 ? 'ready_to_send' : score >= 5 ? 'review' : 'rejected';\n  return { json: { ...lead, email, status, enrichment_score: score, enrichment: JSON.stringify(d),\n    landing_html: status === 'ready_to_send' ? page(lead, d) : '' } };\n});\n"
+      },
+      "id": "667ca2eb-fed9-4d13-9ad9-ae194b1aee22",
+      "name": "Score and route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Enrich (plug-in)": {
+      "main": [
+        [
+          {
+            "node": "Score and route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
