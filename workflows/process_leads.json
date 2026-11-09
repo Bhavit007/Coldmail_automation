@@ -1,0 +1,449 @@
+{
+  "id": "processleads0001",
+  "name": "Process leads",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "68f4b02a-3b08-4d06-bd00-7de90dea824c",
+      "name": "Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "076c96af-d37a-4cf1-9276-529438a7e5d1",
+              "name": "leads_per_run",
+              "value": 10,
+              "type": "number"
+            },
+            {
+              "id": "f2f33c8b-b2de-4651-8de0-cfd3b2b657c0",
+              "name": "claude_model",
+              "value": "PASTE_CLAUDE_MODEL_ID",
+              "type": "string"
+            },
+            {
+              "id": "d2cec1a8-13a2-424f-8cfc-00baac15d7dc",
+              "name": "enrichment_sources",
+              "value": "Instagram profile\nFacebook page and Facebook Marketplace\nAmazon seller / storefront\nOther marketplaces (JustDial, IndiaMART, Zomato, Swiggy, Flipkart, Meesho)\nGoogle Business Profile and Google search\nReddit\nTheir own website (if they have one)",
+              "type": "string"
+            },
+            {
+              "id": "6aab0bd6-68d7-43f2-a708-5b21ff618307",
+              "name": "website_prompt",
+              "value": "Review this small business website: {website}\nOpen it (and up to 2 inner pages). Score it 1-10 for overall quality and SEO:\nmobile-friendly design, clear services, contact details and call-to-action, page titles / meta descriptions / headings,\ntrust signals (reviews, photos), speed, and how up to date it looks.\n10 = excellent, nothing to improve. If it does not load, or is only a social media / listing page, score 1.\n\nReply with only: <json>{\"website_score\": <1-10>, \"notes\": \"<one sentence>\"}</json>",
+              "type": "string"
+            },
+            {
+              "id": "d9115a30-44fa-4caf-a8f0-383ba8c6e8ab",
+              "name": "enrich_prompt",
+              "value": "Research this small business in India and collect public information about it.\n\nBusiness:\n{business}\n\nLook in these places (web search, then open the most useful pages):\n{sources}\n\nRules:\n- Search by phone number as well as name + area. Only use pages that clearly match this business.\n- Only report facts you actually found. Never guess or make up an email address.\n- Use null (or []) for anything you could not find. Do not log in anywhere.\n\nReply with only this JSON inside <json></json> tags:\n<json>{\n \"confirmed\": true or false,\n \"phone\": \"\", \"email\": \"\", \"instagram_url\": \"\", \"facebook_url\": \"\",\n \"other_profiles\": [\"marketplace or listing urls\"],\n \"rating\": number or null, \"review_count\": number or null,\n \"top_reviews\": [\"short quote, max 3\"],\n \"services\": [\"what they sell or offer\"], \"about\": \"2-3 sentences\",\n \"photo_urls\": [\"direct image urls, max 4\"],\n \"headline\": \"short website headline\", \"tagline\": \"one line\"\n}</json>",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9800c61e-278c-4c93-b9a4-98b4c555f6a0",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'processing'\nWHERE id IN (\n  SELECT id FROM leads WHERE status = 'pending' ORDER BY id LIMIT $1::int FOR UPDATE SKIP LOCKED\n)\nRETURNING id, name, category, address, city, phone, website, email;",
+        "options": {
+          "queryReplacement": "={{ $json.leads_per_run }}"
+        }
+      },
+      "id": "3e599309-c5a9-49ad-89be-2107096346cb",
+      "name": "Take pending leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bffe2cc4-fb2d-421c-b40e-661857ffd5ef",
+              "leftValue": "={{ !!$json.website }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e725e094-b2c7-4cc2-b267-b719b5b334bc",
+      "name": "Has website?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Claude request that scores the website.\nconst s = $('Settings').first().json;\nreturn { json: { ...$json, claude_body: {\n  model: s.claude_model, max_tokens: 1500,\n  tools: [{ type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3 }],\n  messages: [{ role: 'user', content: s.website_prompt.split('{website}').join($json.website) }] } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "b2a1cfff-a0d7-485d-a671-3bf635ca935a",
+      "name": "Website prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "web-fetch-2025-09-10"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claude_body) }}",
+        "options": {
+          "timeout": 300000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "81c2fb78-e2b2-4059-aeb3-df2af7c06408",
+      "name": "Claude: score website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        -200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeJson = (r) => {\n  if (r.error) throw new Error(r.error.message || JSON.stringify(r.error));\n  const text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\n  const m = [...text.matchAll(/<json>([\\s\\S]*?)<\\/json>/g)].pop();\n  return JSON.parse(m ? m[1] : text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n};\n// Website score 8 or more = rejected. Everything else goes on to enrichment.\nconst leads = $('Website prompt').all().map(i => { const { claude_body, ...l } = i.json; return l; });\nreturn $input.all().map((item, i) => {\n  const lead = leads[i];\n  try {\n    const d = claudeJson(item.json);\n    const score = Math.max(1, Math.min(10, Math.round(Number(d.website_score) || 1)));\n    return { json: { ...lead, website_score: score, website_notes: d.notes || '', status: score >= 8 ? 'rejected' : 'enrich' } };\n  } catch (e) {\n    return { json: { ...lead, status: 'error', notes: `Website scoring: ${e.message}`.slice(0, 500) } };\n  }\n});\n"
+      },
+      "id": "c2a07038-7917-4c69-a4a5-1a0ccdcd0240",
+      "name": "Read website score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1e3e9a54-56b0-4d8d-911b-85f3d34e177d",
+              "leftValue": "={{ $json.status === 'enrich' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "62cc19b2-dbb1-46aa-ac68-ed4250456baf",
+      "name": "Website below 8?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Claude request that researches the business.\nconst s = $('Settings').first().json;\nconst lead = $json;\nconst business = JSON.stringify({ name: lead.name, category: lead.category, address: lead.address,\n  phone: lead.phone, website: lead.website || null, email: lead.email || null }, null, 2);\nreturn { json: { ...lead, website_score: lead.website_score ?? null, claude_body: {\n  model: s.claude_model, max_tokens: 4000,\n  tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 },\n          { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3 }],\n  messages: [{ role: 'user', content: s.enrich_prompt.split('{business}').join(business).split('{sources}').join(s.enrichment_sources) }] } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "0d52cd5d-f62e-4576-affe-dbeeef46babf",
+      "name": "Enrich prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "web-fetch-2025-09-10"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claude_body) }}",
+        "options": {
+          "timeout": 300000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "4c04868b-7a5d-40b3-8ed0-a57e2cfa790f",
+      "name": "Claude: enrich",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeJson = (r) => {\n  if (r.error) throw new Error(r.error.message || JSON.stringify(r.error));\n  const text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\n  const m = [...text.matchAll(/<json>([\\s\\S]*?)<\\/json>/g)].pop();\n  return JSON.parse(m ? m[1] : text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n};\n// Enrichment score (10 points), then: 8+ build page, 5-7 review, below 5 rejected.\nconst leads = $('Enrich prompt').all().map(i => { const { claude_body, ...l } = i.json; return l; });\nconst has = v => Array.isArray(v) ? v.some(x => has(x)) : v !== null && v !== undefined && String(v).trim() !== '';\nconst num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n\nconst page = (l, d) => {\n  const services = (d.services || []).filter(has);\n  const reviews = (d.top_reviews || []).filter(has).slice(0, 3);\n  const photo = (d.photo_urls || []).filter(has)[0];\n  const tel = String(d.phone || l.phone || '').replace(/[^\\d+]/g, '');\n  return `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\"><title>${esc(l.name)}</title><style>\nbody{margin:0;font-family:system-ui,sans-serif;color:#1d1d1f;line-height:1.6}section{max-width:960px;margin:auto;padding:40px 20px}\n.hero{background:#1f4b99 center/cover;color:#fff;text-align:center;padding:80px 20px}.hero h1{font-size:40px;margin:0 0 8px}\n.btn{display:inline-block;margin-top:20px;background:#fff;color:#1f4b99;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.card{border:1px solid #e5e5ea;border-radius:10px;padding:16px}\nfooter{text-align:center;color:#888;font-size:13px;padding:20px}</style></head><body>\n<div class=\"hero\"${photo ? ` style=\"background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url('${esc(photo)}')\"` : ''}>\n<h1>${esc(d.headline || l.name)}</h1><p>${esc(d.tagline || l.category || '')}</p>${tel ? `<a class=\"btn\" href=\"tel:${tel}\">Call ${esc(d.phone || l.phone)}</a>` : ''}</div>\n${d.about ? `<section><h2>About</h2><p>${esc(d.about)}</p></section>` : ''}\n${services.length ? `<section><h2>What we offer</h2><div class=\"grid\">${services.map(x => `<div class=\"card\">${esc(x)}</div>`).join('')}</div></section>` : ''}\n${reviews.length ? `<section><h2>What customers say${d.rating ? ` (${esc(d.rating)} stars)` : ''}</h2><div class=\"grid\">${reviews.map(x => `<div class=\"card\">&ldquo;${esc(x)}&rdquo;</div>`).join('')}</div></section>` : ''}\n<section><h2>Visit us</h2><p>${esc(l.address)}</p></section>\n<footer>Free concept preview for ${esc(l.name)}</footer></body></html>`;\n};\n\nreturn $input.all().map((item, i) => {\n  const lead = leads[i];\n  let d;\n  try { d = claudeJson(item.json); } catch (e) {\n    return { json: { ...lead, status: 'error', notes: `Enrichment: ${e.message}`.slice(0, 500) } };\n  }\n  const email = d.email || lead.email || '';\n  const score = (d.confirmed === true ? 1 : 0) + (has(d.phone || lead.phone) ? 1 : 0) + (has(email) ? 2 : 0)\n    + (has(d.instagram_url) ? 1 : 0) + (has(d.facebook_url) ? 1 : 0) + (has(d.other_profiles) ? 1 : 0)\n    + (num(d.rating) !== null && num(d.review_count) !== null ? 1 : 0)\n    + (has(d.services) || has(d.about) ? 1 : 0) + (has(d.photo_urls) ? 1 : 0);\n  const status = score >= 8 ? 'ready_to_send' : score >= 5 ? 'review' : 'rejected';\n  return { json: { ...lead, email, status, enrichment_score: score, enrichment: JSON.stringify(d),\n    landing_html: status === 'ready_to_send' ? page(lead, d) : '' } };\n});\n"
+      },
+      "id": "e73123b7-5896-4145-9468-020fb840bb3a",
+      "name": "Score and route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET\n  status = $2, website_score = $3::int, website_notes = $4,\n  enrichment_score = $5::int, enrichment = $6::jsonb, landing_html = $7,\n  email = COALESCE(NULLIF($8, ''), email), notes = $9, processed_at = now()\nWHERE id = $1::int\nRETURNING id, name, status, website_score, enrichment_score;",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.status, $json.website_score ?? null, $json.website_notes ?? '', $json.enrichment_score ?? null, $json.enrichment ?? null, $json.landing_html ?? '', $json.email ?? '', $json.notes ?? ''] }}"
+        }
+      },
+      "id": "ecbf3334-63cd-4bdc-a981-05ae62e3db65",
+      "name": "Save result",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2420,
+        -200
+      ]
+    }
+  ],
+  "connections": {
+    "Run": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Take pending leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Take pending leads": {
+      "main": [
+        [
+          {
+            "node": "Has website?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has website?": {
+      "main": [
+        [
+          {
+            "node": "Website prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enrich prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Website prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude: score website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: score website": {
+      "main": [
+        [
+          {
+            "node": "Read website score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read website score": {
+      "main": [
+        [
+          {
+            "node": "Website below 8?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Website below 8?": {
+      "main": [
+        [
+          {
+            "node": "Enrich prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich prompt": {
+      "main": [
+        [
+          {
+            "node": "Claude: enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: enrich": {
+      "main": [
+        [
+          {
+            "node": "Score and route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and route": {
+      "main": [
+        [
+          {
+            "node": "Save result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

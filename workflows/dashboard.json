@@ -1,0 +1,689 @@
+{
+  "id": "dashboardcold001",
+  "name": "Dashboard",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "dashboard",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4de814e4-a286-42ec-86da-80fd916be028",
+      "name": "Open dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -400
+      ],
+      "webhookId": "e8a1534e-47c0-4570-8861-b44ec03581a5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, city, category, status, website_score, enrichment_score, email,\n  enrichment->>'instagram_url' AS instagram, enrichment->>'facebook_url' AS facebook,\n  coalesce(landing_html, '') <> '' AS has_page,\n  to_char(sent_at AT TIME ZONE 'Asia/Kolkata', 'DD Mon HH24:MI') AS sent_time\nFROM leads\nWHERE (processed_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date\n  AND ($2 = 'all' OR status = $2)\nORDER BY enrichment_score DESC NULLS LAST, id;",
+        "options": {
+          "queryReplacement": "={{ [$json.query.day || $now.setZone('Asia/Kolkata').toISODate(), $json.query.status || 'all'] }}"
+        }
+      },
+      "id": "91302d68-7cc8-4c27-94ba-24ae5948b703",
+      "name": "Get leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        -400
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT o.id, o.lead_id, l.name, o.channel, o.to_address, o.message\nFROM outreach o JOIN leads l ON l.id = o.lead_id\nWHERE o.status = 'queued' ORDER BY o.id;",
+        "options": {}
+      },
+      "id": "2ae83ea4-a411-4129-b318-2958d879836d",
+      "name": "Get manual DMs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        -400
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Draws the dashboard page.\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst q = $('Open dashboard').first().json.query || {};\nconst day = q.day || $now.setZone('Asia/Kolkata').toISODate();\nconst status = q.status || 'all';\nconst leads = $('Get leads').all().map(i => i.json).filter(r => r.id);\nconst dms = $input.all().map(i => i.json).filter(r => r.id);\nconst back = `/webhook/dashboard?day=${encodeURIComponent(day)}&status=${encodeURIComponent(status)}`;\nconst statuses = ['all', 'ready_to_send', 'review', 'rejected', 'sent', 'error', 'processing'];\nconst count = s => leads.filter(l => l.status === s).length;\nconst badge = s => `<span class=\"b b-${esc(s)}\">${esc(String(s).replace(/_/g, ' '))}</span>`;\nconst yes = (v, label, href) => v ? (href ? `<a href=\"${esc(href)}\" target=\"_blank\">${label}</a>` : label) : '<span class=\"muted\">\u2013</span>';\n\nconst rows = leads.map(l => `<tr>\n<td><input type=\"checkbox\" class=\"pick\" value=\"${l.id}\"></td>\n<td><b>${esc(l.name)}</b><div class=\"muted\">${esc(l.category || '')}</div></td>\n<td>${esc(l.city || '')}</td><td>${badge(l.status)}</td>\n<td class=\"n\">${l.website_score ?? '<span class=\"muted\">\u2013</span>'}</td><td class=\"n\">${l.enrichment_score ?? '<span class=\"muted\">\u2013</span>'}</td>\n<td>${yes(l.email, 'Email')} ${yes(l.instagram, 'Insta', l.instagram)} ${yes(l.facebook, 'FB', l.facebook)}</td>\n<td>${l.has_page ? `<a href=\"/webhook/page?id=${l.id}\" target=\"_blank\">View</a>` : '<span class=\"muted\">none</span>'}</td>\n<td class=\"muted\">${esc(l.sent_time || '')}</td></tr>`).join('');\n\nconst dmRows = dms.map(d => `<tr><td><b>${esc(d.name)}</b></td><td>${esc(d.channel)}</td>\n<td><a href=\"${esc(d.to_address)}\" target=\"_blank\">Open profile</a></td>\n<td><textarea readonly onclick=\"this.select()\">${esc(d.message)}</textarea></td>\n<td><form method=\"post\" action=\"/webhook/dashboard-action\"><input type=\"hidden\" name=\"action\" value=\"dm_done\">\n<input type=\"hidden\" name=\"ids\" value=\"${d.id}\"><input type=\"hidden\" name=\"back\" value=\"${esc(back)}\"><button>Done</button></form></td></tr>`).join('');\n\nconst html = `<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>Cold outreach dashboard</title><style>\nbody{font-family:system-ui,sans-serif;margin:0;background:#f5f5f7;color:#1d1d1f}main{max-width:1200px;margin:auto;padding:24px}\nh1{font-size:22px;margin:0 0 16px}h2{font-size:18px;margin:32px 0 12px}.card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 2px #0001}\n.bar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px}.chips span{margin-right:12px}\ntable{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:8px;border-bottom:1px solid #eee;vertical-align:top}\nth{font-size:12px;color:#6e6e73;text-transform:uppercase}.n{text-align:center}.muted{color:#8e8e93;font-size:12px}\nbutton{border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;background:#e5e5ea}\n.send{background:#1f6feb;color:#fff}.reject{background:#d1242f;color:#fff}.build{background:#1a7f37;color:#fff}\n.b{padding:2px 8px;border-radius:999px;font-size:12px;background:#eee}.b-ready_to_send{background:#dafbe1}.b-review{background:#fff8c5}\n.b-rejected{background:#ffebe9}.b-sent{background:#ddf4ff}.b-error{background:#ffebe9}\ntextarea{width:100%;min-height:60px;font:inherit;font-size:13px}.msg{background:#ddf4ff;padding:10px 14px;border-radius:8px;margin-bottom:16px}\n</style></head><body><main>\n<h1>Cold outreach dashboard</h1>\n${q.msg ? `<div class=\"msg\">${esc(q.msg)}</div>` : ''}\n<form class=\"bar\" method=\"get\" action=\"/webhook/dashboard\">\n<label>Day <input type=\"date\" name=\"day\" value=\"${esc(day)}\"></label>\n<label>Status <select name=\"status\">${statuses.map(s => `<option ${s === status ? 'selected' : ''}>${s}</option>`).join('')}</select></label>\n<button>Show</button>\n<span class=\"chips muted\"><span>${leads.length} leads</span><span>${count('ready_to_send')} ready</span><span>${count('review')} review</span><span>${count('rejected')} rejected</span><span>${count('sent')} sent</span></span>\n</form>\n<div class=\"card\">\n<form id=\"act\" method=\"post\" action=\"/webhook/dashboard-action\" class=\"bar\">\n<input type=\"hidden\" name=\"action\" id=\"action\"><input type=\"hidden\" name=\"ids\" id=\"ids\"><input type=\"hidden\" name=\"back\" value=\"${esc(back)}\">\n<label><input type=\"checkbox\" id=\"all\"> Select all</label>\n<button type=\"button\" class=\"send\" data-a=\"send\">Send</button>\n<button type=\"button\" class=\"build\" data-a=\"build\">Build page</button>\n<button type=\"button\" class=\"reject\" data-a=\"reject\">Reject</button>\n<span class=\"muted\">Send uses every channel the lead has. Leads without a page are skipped, so build the page first.</span>\n</form>\n<table><tr><th></th><th>Business</th><th>City</th><th>Status</th><th>Website</th><th>Enrich</th><th>Channels</th><th>Page</th><th>Sent</th></tr>\n${rows || '<tr><td colspan=\"9\" class=\"muted\">No leads for this day and status.</td></tr>'}</table></div>\n<h2>Manual DMs to send (${dms.length})</h2>\n<div class=\"card\"><table><tr><th>Business</th><th>Channel</th><th>Profile</th><th>Message (click to select, then copy)</th><th></th></tr>\n${dmRows || '<tr><td colspan=\"5\" class=\"muted\">Nothing waiting.</td></tr>'}</table></div>\n</main><script>\ndocument.getElementById('all').onchange = e => document.querySelectorAll('.pick').forEach(c => c.checked = e.target.checked);\ndocument.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {\n  const ids = [...document.querySelectorAll('.pick:checked')].map(c => c.value);\n  if (!ids.length) { alert('Select at least one lead first.'); return; }\n  document.getElementById('action').value = b.dataset.a;\n  document.getElementById('ids').value = ids.join(',');\n  document.getElementById('act').submit();\n});\n</script></body></html>`;\nreturn [{ json: { html } }];\n"
+      },
+      "id": "edfd0a9d-a442-4700-b731-7f2d5ab1eec3",
+      "name": "Draw dashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "id": "bbe0668a-9319-44c6-b43a-b09131e82ef4",
+      "name": "Show dashboard",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "dashboard-action",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f015035e-19b8-4759-8599-d246357e991d",
+      "name": "Dashboard action",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "3c7b1ccf-7dee-4cf8-b98c-07b2eb4e5e94"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "689a4876-9602-4a88-90a2-6554bf89ae34",
+              "name": "test_mode",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "41be823b-4abc-4b05-9c68-f1189ff3b2ca",
+              "name": "test_email",
+              "value": "mjbhavit1234@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "17ea61d5-da59-4372-a1b4-0a3dccc0eb7f",
+              "name": "from_email",
+              "value": "mjbhavit1234@gmail.com",
+              "type": "string"
+            },
+            {
+              "id": "55df8bc5-f75b-4e5f-9d28-fcdc98f07a66",
+              "name": "sender_name",
+              "value": "Bhavit",
+              "type": "string"
+            },
+            {
+              "id": "975233d6-23ce-498e-8dbe-e58252f6603b",
+              "name": "page_base_url",
+              "value": "http://localhost:5688",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00e24c35-5bc3-4892-8100-9f875b53c485",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads which button was pressed and which leads were selected.\nconst body = $('Dashboard action').first().json.body || {};\nconst ids = String(body.ids || '').split(',').map(Number).filter(n => Number.isInteger(n) && n > 0);\nconst action = String(body.action || '');\nif (!['reject', 'build', 'send', 'dm_done'].includes(action)) throw new Error(`Unknown action: ${action}`);\nconst base = String($('Settings').first().json.page_base_url).replace(/\\/$/, '');\nconst back = base + (String(body.back || '').startsWith('/webhook/dashboard') ? String(body.back) : '/webhook/dashboard');\nconst join = (url, msg) => url + (url.includes('?') ? '&' : '?') + 'msg=' + encodeURIComponent(msg);\nconst done = { reject: 'Rejected', build: 'Pages built for', send: 'Sending to', dm_done: 'Marked done:' }[action];\nreturn [{ json: { action, ids, ids_pg: `{${ids.join(',')}}`, back: join(back, `${done} ${ids.length} selected.` + (action === 'send' ? ' Refresh in a few seconds to see the result.' : '')) } }];\n"
+      },
+      "id": "e74cd865-baa6-4986-9be9-17343dc12499",
+      "name": "Read request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 4,
+        "output": "={{ ['reject', 'build', 'send', 'dm_done'].indexOf($json.action) }}"
+      },
+      "id": "55f49ca3-f6e9-4fe8-aa51-8cc75aa54825",
+      "name": "Which button?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'rejected' WHERE id = ANY($1::int[]) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.ids_pg] }}"
+        }
+      },
+      "id": "18638f05-e128-457c-9688-d44d742d1aa7",
+      "name": "Reject leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        -300
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, category, address, phone, enrichment::text AS enrichment FROM leads WHERE id = ANY($1::int[]);",
+        "options": {
+          "queryReplacement": "={{ [$json.ids_pg] }}"
+        }
+      },
+      "id": "a0b956cc-dc44-49ac-9971-994891e40028",
+      "name": "Get leads to build",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        -100
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const has = v => Array.isArray(v) ? v.some(x => has(x)) : v !== null && v !== undefined && String(v).trim() !== '';\nconst num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };\nconst esc = v => String(v ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n\nconst page = (l, d) => {\n  const services = (d.services || []).filter(has);\n  const reviews = (d.top_reviews || []).filter(has).slice(0, 3);\n  const photo = (d.photo_urls || []).filter(has)[0];\n  const tel = String(d.phone || l.phone || '').replace(/[^\\d+]/g, '');\n  return `<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\"><title>${esc(l.name)}</title><style>\nbody{margin:0;font-family:system-ui,sans-serif;color:#1d1d1f;line-height:1.6}section{max-width:960px;margin:auto;padding:40px 20px}\n.hero{background:#1f4b99 center/cover;color:#fff;text-align:center;padding:80px 20px}.hero h1{font-size:40px;margin:0 0 8px}\n.btn{display:inline-block;margin-top:20px;background:#fff;color:#1f4b99;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}.card{border:1px solid #e5e5ea;border-radius:10px;padding:16px}\nfooter{text-align:center;color:#888;font-size:13px;padding:20px}</style></head><body>\n<div class=\"hero\"${photo ? ` style=\"background-image:linear-gradient(rgba(0,0,0,.5),rgba(0,0,0,.5)),url('${esc(photo)}')\"` : ''}>\n<h1>${esc(d.headline || l.name)}</h1><p>${esc(d.tagline || l.category || '')}</p>${tel ? `<a class=\"btn\" href=\"tel:${tel}\">Call ${esc(d.phone || l.phone)}</a>` : ''}</div>\n${d.about ? `<section><h2>About</h2><p>${esc(d.about)}</p></section>` : ''}\n${services.length ? `<section><h2>What we offer</h2><div class=\"grid\">${services.map(x => `<div class=\"card\">${esc(x)}</div>`).join('')}</div></section>` : ''}\n${reviews.length ? `<section><h2>What customers say${d.rating ? ` (${esc(d.rating)} stars)` : ''}</h2><div class=\"grid\">${reviews.map(x => `<div class=\"card\">&ldquo;${esc(x)}&rdquo;</div>`).join('')}</div></section>` : ''}\n<section><h2>Visit us</h2><p>${esc(l.address)}</p></section>\n<footer>Free concept preview for ${esc(l.name)}</footer></body></html>`;\n};\n\n// Force build: makes a page from whatever enrichment data the lead has.\nconst out = [];\nfor (const { json: l } of $input.all()) {\n  if (!l.id) continue;\n  let d = {};\n  try { d = typeof l.enrichment === 'string' ? JSON.parse(l.enrichment) : (l.enrichment || {}); } catch (e) {}\n  out.push({ json: { id: l.id, landing_html: page(l, d) } });\n}\nreturn out.length ? out : [{ json: { id: null, landing_html: '' } }];\n"
+      },
+      "id": "778e53f6-a9be-4f5f-ae23-885a9ff9317a",
+      "name": "Build pages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET landing_html = $2, status = 'ready_to_send' WHERE id = $1::int;",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.landing_html] }}"
+        }
+      },
+      "id": "a1d77911-fa3e-4dc1-8991-d570a7845613",
+      "name": "Save pages",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1340,
+        -100
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $('Read request').first().json.back }}",
+        "options": {}
+      },
+      "id": "db8008bd-d3d0-4adf-8ae4-5e290d39eb88",
+      "name": "Sending... back to dashboard",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, email, coalesce(landing_html, '') <> '' AS has_page,\n  enrichment->>'instagram_url' AS instagram, enrichment->>'facebook_url' AS facebook\nFROM leads WHERE id = ANY($1::int[]);",
+        "options": {
+          "queryReplacement": "={{ [$('Read request').first().json.ids_pg] }}"
+        }
+      },
+      "id": "3c2495ad-feeb-4048-93fd-c13b721b65e5",
+      "name": "Get leads to send",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per message: email goes out automatically, Instagram / Facebook go to the manual DM list.\nconst s = $('Settings').first().json;\nconst out = [];\nfor (const { json: l } of $input.all()) {\n  if (!l.id || !l.has_page) continue;\n  const link = `${String(s.page_base_url).replace(/\\/$/, '')}/webhook/page?id=${l.id}`;\n  const text = `Hi ${l.name} team! I made a free preview of a simple website for your business: ${link} - happy to put it live on your own domain if you like it. ${s.sender_name}`;\n  if (l.email) {\n    const to = s.test_mode ? s.test_email : l.email;\n    out.push({ json: { lead_id: l.id, channel: 'email', to,\n      subject: (s.test_mode ? `[TEST - real: ${l.email}] ` : '') + `A free website preview for ${l.name}`,\n      html: `<p>Hi ${l.name} team,</p><p>I put together a free preview of what a simple website for your business could look like:<br><a href=\"${link}\">${link}</a></p><p>If you like it, I can put it live on your own domain. Just reply to this email.</p><p>${s.sender_name}</p>`,\n      message: text } });\n  }\n  if (l.instagram) out.push({ json: { lead_id: l.id, channel: 'instagram', to: l.instagram, message: text } });\n  if (l.facebook) out.push({ json: { lead_id: l.id, channel: 'facebook', to: l.facebook, message: text } });\n}\nreturn out;\n"
+      },
+      "id": "53d130b9-ca1f-439b-8662-b236e49d8640",
+      "name": "Prepare messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "967df1aa-7bbc-4217-bf50-52397eee0069",
+              "leftValue": "={{ $json.channel === 'email' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8ede8759-bd2a-415e-a316-bb756f91f6eb",
+      "name": "Is email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Settings').first().json.from_email }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "ed8ce822-84b4-45c7-a3fa-e2f6ec010fb6",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1780,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Records whether each email was sent.\nconst sent = $('Is email?').all(0).map(i => i.json);\nreturn $input.all().map((item, i) => ({ json: { ...sent[i],\n  status: item.json.error ? 'failed' : 'sent',\n  message: item.json.error ? `${sent[i].subject}\\nError: ${item.json.error.message || item.json.error}` : sent[i].subject } }));\n"
+      },
+      "id": "e2efbb11-bb0c-4e82-a468-1d6a0ef808d4",
+      "name": "Email result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO outreach (lead_id, channel, status, to_address, message) VALUES ($1::int, $2, $3, $4, $5);",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id, $json.channel, $json.status || 'queued', $json.to, $json.message] }}"
+        }
+      },
+      "id": "3d4fc5d6-dde0-4aae-858a-3387d0554fad",
+      "name": "Log message",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2220,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET status = 'sent', sent_at = now()\nWHERE id = ANY($1::int[]) AND EXISTS (\n  SELECT 1 FROM outreach o WHERE o.lead_id = leads.id AND o.status IN ('sent', 'queued'));",
+        "options": {
+          "queryReplacement": "={{ [$('Read request').first().json.ids_pg] }}"
+        }
+      },
+      "id": "04726e94-1ba7-46af-b356-5c016534dc6a",
+      "name": "Mark sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2440,
+        120
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outreach SET status = 'done', done_at = now() WHERE id = ANY($1::int[]) RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.ids_pg] }}"
+        }
+      },
+      "id": "d2d10dfb-aa4e-4cde-9bc1-f73a9b5c495a",
+      "name": "Mark DM done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        320
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $('Read request').first().json.back }}",
+        "options": {}
+      },
+      "id": "45a4b641-975c-4e85-a3fb-fdb843ccb7e4",
+      "name": "Back to dashboard",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        -300
+      ]
+    }
+  ],
+  "connections": {
+    "Open dashboard": {
+      "main": [
+        [
+          {
+            "node": "Get leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get leads": {
+      "main": [
+        [
+          {
+            "node": "Get manual DMs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get manual DMs": {
+      "main": [
+        [
+          {
+            "node": "Draw dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draw dashboard": {
+      "main": [
+        [
+          {
+            "node": "Show dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dashboard action": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Read request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read request": {
+      "main": [
+        [
+          {
+            "node": "Which button?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which button?": {
+      "main": [
+        [
+          {
+            "node": "Reject leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get leads to build",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sending... back to dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark DM done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject leads": {
+      "main": [
+        [
+          {
+            "node": "Back to dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get leads to build": {
+      "main": [
+        [
+          {
+            "node": "Build pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build pages": {
+      "main": [
+        [
+          {
+            "node": "Save pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save pages": {
+      "main": [
+        [
+          {
+            "node": "Back to dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark DM done": {
+      "main": [
+        [
+          {
+            "node": "Back to dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sending... back to dashboard": {
+      "main": [
+        [
+          {
+            "node": "Get leads to send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get leads to send": {
+      "main": [
+        [
+          {
+            "node": "Prepare messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare messages": {
+      "main": [
+        [
+          {
+            "node": "Is email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is email?": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Email result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email result": {
+      "main": [
+        [
+          {
+            "node": "Log message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log message": {
+      "main": [
+        [
+          {
+            "node": "Mark sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

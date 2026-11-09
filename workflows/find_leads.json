@@ -1,0 +1,235 @@
+{
+  "id": "findleads0000001",
+  "name": "Find leads",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "521a99f4-1f48-4cbf-97c8-b7128c740030",
+      "name": "Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "914bf6ad-bdea-4140-9f6b-fe537dedef82",
+              "name": "target_new_leads",
+              "value": 10,
+              "type": "number"
+            },
+            {
+              "id": "de880ea3-8546-4d9f-93a3-a205af014d6f",
+              "name": "aws_region",
+              "value": "ap-south-1",
+              "type": "string"
+            },
+            {
+              "id": "396deb49-1eba-4ab1-a5af-312de68f96d6",
+              "name": "run_started",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "215ac22e-103a-494e-98ff-3d52c514a307",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT q.*,\n  (SELECT count(*) FROM leads WHERE created_at >= $1::timestamptz)::int AS new_this_run\nFROM search_queries q\nWHERE NOT q.done\nORDER BY q.id\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ $('Settings').first().json.run_started }}"
+        }
+      },
+      "id": "7d5f5132-6735-447f-b7fe-42c8258add4c",
+      "name": "Next unfinished search",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "eaacc0f8-7304-4eed-8148-9509136895c6",
+              "leftValue": "={{ $json.new_this_run < $('Settings').first().json.target_new_leads }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "396eeaf6-0ffa-4e37-8354-cc5438a86b8a",
+      "name": "Need more leads?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://places.geo.{{ $('Settings').first().json.aws_region }}.amazonaws.com/v2/search-text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ QueryText: $json.query, BiasPosition: [$json.lng, $json.lat], MaxResults: 100, AdditionalFeatures: ['Contact'], Language: 'en' }, $json.next_token ? { NextToken: $json.next_token } : {})) }}",
+        "options": {}
+      },
+      "id": "1529ef0b-bb86-406f-93aa-de7709dadf99",
+      "name": "Amazon Location search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn Amazon's results into lead rows for the database.\nconst r = $input.first().json;\nconst q = $('Next unfinished search').first(0, $runIndex).json;\nconst target = $('Settings').first().json.target_new_leads;\nconst digits = v => String(v || '').replace(/\\D/g, '').slice(-10);\nconst slug = v => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\nconst rows = (r.ResultItems || []).map(p => {\n  const c = p.Contacts || {};\n  const phone = c.Phones?.[0]?.Value || '';\n  return {\n    dedupe_key: digits(phone) || slug(`${p.Title} ${p.Address?.Label || ''}`),\n    name: p.Title || '',\n    category: (p.Categories || []).map(x => x.Name).join(', '),\n    address: p.Address?.Label || '',\n    city: p.Address?.Locality || '',\n    phone,\n    website: c.Websites?.[0]?.Value || '',\n    email: c.Emails?.[0]?.Value || '',\n  };\n});\nreturn [{ json: { rows, next_token: r.NextToken || '', query_id: q.id, remaining: target - q.new_this_run } }];\n"
+      },
+      "id": "d2d09f61-df44-428e-8372-bba5351cf5da",
+      "name": "Clean results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH incoming AS (\n  SELECT * FROM json_to_recordset($1::json) AS x(\n    dedupe_key text, name text, category text, address text, city text, phone text, website text, email text)\n),\nfresh AS (\n  SELECT DISTINCT ON (dedupe_key) * FROM incoming i\n  WHERE dedupe_key <> '' AND NOT EXISTS (SELECT 1 FROM leads l WHERE l.dedupe_key = i.dedupe_key)\n),\nins AS (\n  INSERT INTO leads (dedupe_key, name, category, address, city, phone, website, email, query_id)\n  SELECT dedupe_key, name, category, address, city, phone, website, email, $3::int\n  FROM fresh LIMIT $4::int\n  ON CONFLICT (dedupe_key) DO NOTHING\n  RETURNING 1\n),\nused_whole_page AS (SELECT (SELECT count(*) FROM fresh) <= $4::int AS yes)\nUPDATE search_queries SET\n  next_token  = CASE WHEN (SELECT yes FROM used_whole_page) THEN $2::text ELSE next_token END,\n  done        = CASE WHEN (SELECT yes FROM used_whole_page) THEN $2::text = '' ELSE false END,\n  total_found = total_found + (SELECT count(*) FROM incoming),\n  total_new   = total_new + (SELECT count(*) FROM ins),\n  last_run_at = now()\nWHERE id = $3::int\nRETURNING id AS query_id, (SELECT count(*) FROM ins)::int AS added, done;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify($json.rows), $json.next_token, $json.query_id, $json.remaining] }}"
+        }
+      },
+      "id": "493d374a-e02b-4f16-8a9e-401794709a17",
+      "name": "Save new leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Run": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Next unfinished search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next unfinished search": {
+      "main": [
+        [
+          {
+            "node": "Need more leads?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need more leads?": {
+      "main": [
+        [
+          {
+            "node": "Amazon Location search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Amazon Location search": {
+      "main": [
+        [
+          {
+            "node": "Clean results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean results": {
+      "main": [
+        [
+          {
+            "node": "Save new leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save new leads": {
+      "main": [
+        [
+          {
+            "node": "Next unfinished search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
