@@ -1,0 +1,184 @@
+{
+  "id": "websiteplug00001",
+  "name": "PLUGIN website: Claude",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "2ace6744-8ab5-4e1a-b344-3f4b19140c99",
+      "name": "Lead in",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "eb928e5a-fd47-44da-bebf-9a255e65c860",
+              "name": "claude_model",
+              "value": "claude-opus-5-5",
+              "type": "string"
+            },
+            {
+              "id": "502332c9-665d-4866-97c1-131b102e1330",
+              "name": "effort",
+              "value": "xhigh",
+              "type": "string"
+            },
+            {
+              "id": "eb654000-b368-4cf3-a228-4be804d974dd",
+              "name": "max_tokens",
+              "value": 128000,
+              "type": "number"
+            },
+            {
+              "id": "9d22b7c1-b89c-4934-ba61-79120c54cc7b",
+              "name": "website_prompt",
+              "value": "Create a modern, professional, responsive lead-generation website for [Business Name], a [type of business/service] serving [location/target service area].\nPrimary Goal\nThe primary goal is to generate qualified leads and convert visitors into [booked consultations / appointments / quote requests / inquiries].\nTarget Audience\nDesign the website for [target customers], clearly addressing their needs, pain points, and reasons for choosing this business.\nDesign & Branding\nCreate a design that is trustworthy, professional, modern, and visually distinctive to the business.\nAdapt the visual identity based on the business type, including:\n\n* A suitable color palette\n* Clean, highly readable typography\n* Professional imagery or relevant custom illustrations\n* Consistent iconography\n* Generous spacing and clear visual hierarchy\n* Subtle animations and micro-interactions where appropriate\n* A polished, premium appearance without unnecessary visual clutter\n\nDo not use the same visual style for every business. Adapt the layout, colors, imagery, typography, and visual personality to the specific business and target audience.\nWebsite Structure\nInclude the following sections/pages:\n1. Home\n\n* Strong hero section with a clear value proposition\n* Short explanation of what the business does\n* Primary CTA such as Book a Consultation, Request a Quote, Get Started, Book an Appointment, or Contact Us\n* Secondary CTA where appropriate\n* Key benefits or differentiators\n* Overview of major services\n* Trust indicators\n* Testimonials/reviews\n* Relevant business statistics, certifications, awards, or credentials\n* Final conversion CTA\n\n2. Services\n\n* Display all major services in a clear, scannable layout\n* Explain what each service includes\n* Explain who each service is best suited for\n* Highlight the value/outcome of each service\n* Include a relevant CTA for each service where appropriate\n\n3. About\n\n* Business story and background\n* Mission and values\n* Team or founder information\n* Experience, qualifications, certifications, or credentials\n* Business differentiators\n* Authentic imagery where appropriate\n\n4. Testimonials / Reviews\n\n* Display genuine-looking customer testimonials\n* Include customer names, roles, locations, ratings, or photos where appropriate\n* Highlight measurable outcomes when available\n* Use a carousel/slider when it improves the experience\n\n5. FAQ\n\n* Answer common customer questions\n* Include pricing/process/availability/service-area questions where relevant\n* Use an accessible accordion interface\n\n6. Contact / Lead Generation\nCreate a simple, conversion-focused inquiry form with fields relevant to the business.\nPossible fields include:\n\n* Name\n* Email\n* Phone\n* Service required\n* Location\n* Preferred date/time\n* Budget\n* Urgency\n* Message/project details\n\nOnly include fields that are relevant. Keep the form short enough to maximize conversions.\nLocation & Business Information\nWhen applicable, include:\n\n* Business address\n* Service area\n* Interactive map\n* Operating hours\n* Phone number\n* Email\n* Click-to-call on mobile\n* Social media links\n\nConversion Strategy\nMake the primary conversion action highly visible throughout the website.\nUse contextually appropriate CTAs such as:\n\n* Book a Consultation\n* Request a Quote\n* Book an Appointment\n* Get Started\n* Schedule a Call\n* Contact Us\n\nKeep the primary CTA visible in the header and repeat it strategically throughout the page.\nTrust & Credibility\nUse relevant trust signals based on the business, such as:\n\n* Customer reviews\n* Ratings\n* Certifications\n* Licenses\n* Awards\n* Years of experience\n* Number of customers served\n* Case studies\n* Client logos\n* Guarantees\n* Professional memberships\n\nNever invent certifications, awards, statistics, reviews, or claims. Use placeholders when information has not been provided.\nResponsive & Accessible\nBuild the website mobile-first and fully responsive across mobile, tablet, and desktop.\nPrioritize:\n\n* Fast loading\n* Accessible navigation\n* Proper color contrast\n* Keyboard accessibility\n* Clear typography\n* Semantic structure\n* Touch-friendly buttons\n* Responsive forms\n* Optimized images\n\nOverall Experience\nThe final website should feel like a real, established business website, not a generic template.\nPrioritize:\nTrust \u2192 Clarity \u2192 Business-specific branding \u2192 Conversion \u2192 Professionalism\nAutomatically determine the most appropriate layout, content hierarchy, imagery, CTA strategy, and sections based on the business type and target audience.\nThe website should make a visitor understand within seconds:\nWhat the business does \u2192 Who it helps \u2192 Why they should trust it \u2192 What they should do next.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "712ce3d1-a2f4-4663-a020-ea1c7eb4c6f9",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fills the website prompt with this lead's data and asks Claude for one complete HTML file.\nconst s = $json;\nlet found = {};\ntry { found = typeof s.enrichment === 'string' ? JSON.parse(s.enrichment || '{}') : (s.enrichment || {}); } catch (e) {}\nconst business = JSON.stringify({\n  name: s.name, category: s.category, address: s.address, city: s.city, phone: s.phone || found.phone || null,\n  email: s.email || found.email || null, existing_website: s.website || null, ...found }, null, 2);\nconst content = `${s.website_prompt}\n\n---\nBusiness information (the only facts you may use about this business; fill the [bracketed] parts of the brief from it):\n${business}\n\nTechnical rules for this page:\n- Return ONE complete, self-contained HTML file: all CSS and JavaScript inline. Google Fonts is the only allowed external stylesheet.\n- Use the photo_urls above for imagery when given; otherwise use inline SVG illustrations. No stock-photo links.\n- \"Pages\" are sections of this one page, linked from the header navigation.\n- Testimonials: use the real reviews above (top_reviews, rating, review_count). If there are none, show clearly marked placeholder testimonials.\n- Map: embed https://maps.google.com/maps?q=<url-encoded address>&output=embed in an iframe.\n- The contact form has no backend yet: on submit, show a thank-you message.\n- Add <meta name=\"robots\" content=\"noindex\"> and a small footer line: \"Free concept preview for ${s.name}\".\n- Reply with only the HTML, starting with <!doctype html>.`;\nreturn { json: { claude_body: {\n  model: s.claude_model, max_tokens: s.max_tokens, stream: true,\n  thinking: { type: 'adaptive' }, output_config: { effort: s.effort },\n  messages: [{ role: 'user', content }] } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "e764fe9f-9ec0-4c6f-b1e4-797c2b4654fd",
+      "name": "Build request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claude_body) }}",
+        "options": {
+          "timeout": 3600000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "ddd2f0c2-ff06-439f-88dd-f9a89e4af0b1",
+      "name": "Claude: write website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Plug-in output: the lead as it came in, plus landing_html. If no page came back: status 'error' + notes.\nconst leads = $('Lead in').all().map(i => i.json);\nreturn $input.all().map((item, i) => {\n  const r = item.json, lead = leads[i];\n  // Claude streams its answer (needed for long pages): join the text pieces back together.\n  let text = '', stop = r.stop_reason || '', err = r.error ? (r.error.message || JSON.stringify(r.error)) : '';\n  if (typeof r.data === 'string') {\n    for (const line of r.data.split('\\n')) {\n      if (!line.startsWith('data:')) continue;\n      let ev; try { ev = JSON.parse(line.slice(5)); } catch (e) { continue; }\n      if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') text += ev.delta.text;\n      else if (ev.type === 'message_delta') stop = ev.delta?.stop_reason || stop;\n      else if (ev.type === 'error') err = ev.error?.message || 'stream error';\n    }\n  } else {\n    text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\n  }\n  const start = text.search(/<!doctype html|<html/i), end = text.toLowerCase().lastIndexOf('</html>');\n  if (err || start < 0 || end < start) {\n    const why = err || `no HTML in reply (stop_reason: ${stop || 'unknown'})`;\n    return { json: { ...lead, landing_html: '', status: 'error', notes: `Website: ${why}`.slice(0, 500) } };\n  }\n  return { json: { ...lead, landing_html: text.slice(start, end + 7) } };\n});\n"
+      },
+      "id": "eef43c59-937d-4535-ad3d-b884d7b3cdd3",
+      "name": "Read result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Lead in": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Build request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build request": {
+      "main": [
+        [
+          {
+            "node": "Claude: write website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: write website": {
+      "main": [
+        [
+          {
+            "node": "Read result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
