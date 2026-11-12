@@ -23,8 +23,28 @@ services:
       - pg_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
+  # Google Maps scraper (gosom/google-maps-scraper, MIT). n8n calls it at http://gmaps:8080.
+  gmaps:
+    image: gosom/google-maps-scraper:latest
+    restart: unless-stopped
+    command: ["-web", "-data-folder", "/gmapsdata"]
+    environment:
+      - DISABLE_TELEMETRY=1
+    ports:
+      - "8090:8080"
+    volumes:
+      - gmaps_data:/gmapsdata
+
+  # Crawl4AI (unclecode/crawl4ai, Apache-2.0) reads lead websites. Only n8n can reach it (no port opened on your PC).
+  crawl4ai:
+    image: unclecode/crawl4ai:0.8.6
+    restart: unless-stopped
+    shm_size: "1g"
+
 volumes:
   n8n_data:
     name: coldmail_n8n_data
   pg_data:
     name: coldmail_pg_data
+  gmaps_data:
+    name: coldmail_gmaps_data

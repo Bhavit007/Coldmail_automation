@@ -1,12 +1,12 @@
 {
   "id": "enrichclaude0001",
-  "name": "PLUGIN enrich: Claude",
+  "name": "PLUGIN enrichment: Crawl4AI + Claude",
   "nodes": [
     {
       "parameters": {
         "inputSource": "passthrough"
       },
-      "id": "be63b173-64af-4b01-8156-f374d080977b",
+      "id": "21509240-fc15-4858-be92-6f0e8e4770ac",
       "name": "Lead in",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -21,28 +21,52 @@
         "assignments": {
           "assignments": [
             {
-              "id": "ad9ebf91-2690-4e2f-b84e-6f0e7f3e2be7",
+              "id": "ec1e64a2-4c4b-4626-b36d-7a45b4c3b8ce",
               "name": "claude_model",
               "value": "PASTE_CLAUDE_MODEL_ID",
               "type": "string"
             },
             {
-              "id": "8eef9b94-7e90-47d5-9836-cda17b2c36b6",
-              "name": "enrichment_sources",
-              "value": "Instagram profile\nFacebook page and Facebook Marketplace\nAmazon seller / storefront\nOther marketplaces (JustDial, IndiaMART, Zomato, Swiggy, Flipkart, Meesho)\nGoogle Business Profile and Google search\nReddit\nTheir own website (if they have one)",
+              "id": "2f7a1dea-d31e-4f1f-bebd-8f4d4dd13dbc",
+              "name": "claude_max_searches",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "31604e25-f554-47de-93f4-8188bdf390a0",
+              "name": "crawl4ai_url",
+              "value": "http://crawl4ai:11235",
               "type": "string"
             },
             {
-              "id": "2e829415-6776-4c09-9da3-a161e86c0987",
+              "id": "9e6dd0e2-dc64-45b8-9273-0253f8f5e12d",
+              "name": "crawl_max_pages",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "ee8d3036-351c-49ac-928f-3c87810c880a",
+              "name": "site_text_max_chars",
+              "value": 6000,
+              "type": "number"
+            },
+            {
+              "id": "f29f56cd-3449-46a1-b16e-1134626d0ade",
+              "name": "enrichment_sources",
+              "value": "Google Business Profile / Google Maps (rating, review count, reviews, photos)\nYelp\nFacebook page\nInstagram profile\nBBB (Better Business Bureau)\nAngi, HomeAdvisor, Thumbtack, Nextdoor, Houzz",
+              "type": "string"
+            },
+            {
+              "id": "cb6903b2-e510-41de-a3f4-3d393d433dc4",
               "name": "enrich_prompt",
-              "value": "Research this small business in India and collect public information about it.\n\nBusiness:\n{business}\n\nLook in these places (web search, then open the most useful pages):\n{sources}\n\nRules:\n- Search by phone number as well as name + area. Only use pages that clearly match this business.\n- Only report facts you actually found. Never guess or make up an email address.\n- Use null (or []) for anything you could not find. Do not log in anywhere.\n\nReply with only this JSON inside <json></json> tags:\n<json>{\n \"confirmed\": true or false,\n \"phone\": \"\", \"email\": \"\", \"instagram_url\": \"\", \"facebook_url\": \"\",\n \"other_profiles\": [\"marketplace or listing urls\"],\n \"rating\": number or null, \"review_count\": number or null,\n \"top_reviews\": [\"short quote, max 3\"],\n \"services\": [\"what they sell or offer\"], \"about\": \"2-3 sentences\",\n \"photo_urls\": [\"direct image urls, max 4\"],\n \"headline\": \"short website headline\", \"tagline\": \"one line\"\n}</json>",
+              "value": "Research this small US business and collect public information about it.\n\nBusiness:\n{business}\n\nAlready found on their own website (trust this and do not open their website again):\n{website_findings}\n\nSearch for what is still missing, in these places:\n{sources}\n\nRules:\n- Search by phone number as well as name + city. Only use pages that clearly match this business.\n- Only report facts you actually found. Never guess or make up an email address.\n- Use null (or []) for anything you could not find. Do not log in anywhere.\n\nReply with only this JSON inside <json></json> tags:\n<json>{\n \"confirmed\": true or false,\n \"phone\": \"\", \"email\": \"\", \"instagram_url\": \"\", \"facebook_url\": \"\",\n \"other_profiles\": [\"listing urls: Google, Yelp, BBB, Angi...\"],\n \"rating\": number or null, \"review_count\": number or null,\n \"top_reviews\": [\"short quote, max 3\"],\n \"services\": [\"what they offer\"], \"about\": \"2-3 sentences\",\n \"photo_urls\": [\"direct image urls, max 4\"],\n \"headline\": \"short website headline\", \"tagline\": \"one line\"\n}</json>",
               "type": "string"
             }
           ]
         },
         "options": {}
       },
-      "id": "a6f31ea6-7c14-4ec8-bce7-632cb65fd17f",
+      "id": "c5d6950a-52b6-45a1-aa2c-ec7e9811b71f",
       "name": "Settings",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -53,16 +77,97 @@
     },
     {
       "parameters": {
-        "jsCode": "// Builds the Claude request from this plug-in's own Settings.\nconst s = $json;\nconst business = JSON.stringify({ name: s.name, category: s.category, address: s.address,\n  phone: s.phone, website: s.website || null, email: s.email || null }, null, 2);\nreturn { json: { claude_body: {\n  model: s.claude_model, max_tokens: 4000,\n  tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 },\n          { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3 }],\n  messages: [{ role: 'user', content: s.enrich_prompt.split('{business}').join(business).split('{sources}').join(s.enrichment_sources) }] } } };\n",
-        "mode": "runOnceForEachItem"
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "25056d3a-e2e7-4f73-bcc9-691eda885446",
+              "leftValue": "={{ !!$json.website && !/facebook\\.com|instagram\\.com|yelp\\.com|linktr\\.ee|google\\.com|g\\.page|nextdoor\\.com/i.test($json.website) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      "id": "7b08ac29-f98d-4fed-a8e6-18c4c0a28d72",
-      "name": "Build request",
-      "type": "n8n-nodes-base.code",
+      "id": "5cbb0e4f-4c66-4ecb-a019-18585fd86aca",
+      "name": "Has own website?",
+      "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
         440,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pages of their own website for Crawl4AI to read: the home page, contact and about.\nconst s = $json;\nconst site = /^https?:\\/\\//i.test(s.website) ? s.website.trim() : 'https://' + String(s.website).trim();\nconst root = (site.match(/^https?:\\/\\/[^\\/?#]+/i) || [site])[0];\nconst urls = [site, root + '/contact', root + '/contact-us', root + '/about', root + '/about-us'];\nreturn { json: { crawl_body: { urls: [...new Set(urls)].slice(0, s.crawl_max_pages),\n  browser_config: { type: 'BrowserConfig', params: { headless: true } },\n  crawler_config: { type: 'CrawlerRunConfig', params: { cache_mode: 'bypass', page_timeout: 30000 } } } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "467f945d-6a9e-4116-999a-ac9bb84a4b8b",
+      "name": "Build crawl request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Settings').first().json.crawl4ai_url }}/crawl",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.crawl_body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "75d4f152-4013-4498-85b8-5f7a124a64b5",
+      "name": "Crawl4AI: read website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// What their website says: emails, phones, social profiles and photos (no AI), plus some text for Claude.\nconst s = $('Settings').first().json;\nconst r = $input.first().json;\nconst pages = (r.results || []).filter(p => p.success && (!p.status_code || p.status_code < 400));\nconst origin = u => (String(u).match(/^https?:\\/\\/[^\\/?#]+/i) || [''])[0];\nconst abs = (src, base) => /^https?:/i.test(src) ? src : src.startsWith('//') ? 'https:' + src\n  : src.startsWith('/') ? origin(base) + src : String(base).replace(/[^\\/]*([?#].*)?$/, '') + src;\nconst links = pages.flatMap(p => [...(p.links?.external || []), ...(p.links?.internal || [])].map(l => l.href || ''));\nconst host = origin(pages[0]?.url || '').replace(/^https?:\\/\\/(www\\.)?/i, '');\nconst badEmail = /\\.(png|jpe?g|gif|webp|svg)$|example\\.|sentry|wixpress|godaddy|domain\\.com|yourname|@email\\./i;\nconst emails = [...new Set(pages.map(p => p.html || '').join('\\n').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi) || [])]\n  .map(e => e.toLowerCase()).filter((e, i, a) => !badEmail.test(e) && a.indexOf(e) === i)\n  .sort((a, b) => (host && b.endsWith(host)) - (host && a.endsWith(host)));\nconst pick = re => links.find(h => re.test(h) && !/sharer|share\\.php|\\/intent|\\/plugins\\/|\\/dialog\\//i.test(h)) || null;\nconst site = {\n  pages_read: pages.length,\n  emails: emails.slice(0, 3),\n  phones: [...new Set(links.filter(h => h.startsWith('tel:')).map(h => decodeURIComponent(h.slice(4)).trim()))].slice(0, 2),\n  instagram_url: pick(/instagram\\.com\\/[^/?#]+/i),\n  facebook_url: pick(/facebook\\.com\\/[^?#]+/i),\n  other_profiles: [/yelp\\.com\\/biz\\//i, /linkedin\\.com\\/company\\//i, /tiktok\\.com\\/@/i, /youtube\\.com\\/(c\\/|channel\\/|@)/i,\n    /nextdoor\\.com\\/(pages|biz)\\//i, /bbb\\.org\\//i, /angi\\.com\\//i, /houzz\\.com\\//i, /google\\.com\\/maps|g\\.page\\/|maps\\.app\\.goo\\.gl/i]\n    .map(pick).filter(Boolean),\n  photo_urls: [...new Set(pages.flatMap(p => (p.media?.images || []).map(i => ({ ...i, src: abs(i.src, p.url) })))\n    .filter(i => /^https?:/.test(i.src) && !/logo|icon|sprite|pixel|badge|\\.svg/i.test(i.src))\n    .sort((a, b) => (b.score || 0) - (a.score || 0)).map(i => i.src))].slice(0, 4),\n};\nif (r.error) site.error = String(r.error.message || r.error).slice(0, 200);\nconst site_text = pages.map(p => `## ${p.url}\\n` + String(p.markdown?.raw_markdown ?? p.markdown ?? '')\n  .replace(/!\\[[^\\]]*\\]\\([^)]*\\)/g, '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 3000)).join('\\n\\n').slice(0, s.site_text_max_chars);\nreturn [{ json: { ...s, site, site_text } }];\n"
+      },
+      "id": "cc4991b6-fd93-431a-a5dc-b514bbd140d4",
+      "name": "Read website",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Claude request: website findings go in, so Claude only searches for what is missing.\nconst s = $json;\nconst business = JSON.stringify({ name: s.name, category: s.category, address: s.address,\n  phone: s.phone, website: s.website || null, email: s.email || null }, null, 2);\nconst findings = s.site && s.site.pages_read\n  ? JSON.stringify(s.site, null, 2) + (s.site_text ? `\\n\\nText from their website:\\n${s.site_text}` : '')\n  : 'Nothing - they have no website of their own, or it could not be read.';\nconst content = s.enrich_prompt.split('{business}').join(business).split('{sources}').join(s.enrichment_sources)\n  .split('{website_findings}').join(findings);\nreturn { json: { ...s, claude_body: {\n  model: s.claude_model, max_tokens: 4000,\n  tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: s.claude_max_searches },\n          { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 2 }],\n  messages: [{ role: 'user', content }] } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "3be7e537-3e6e-4a1a-a2c5-3d892c6255f6",
+      "name": "Build request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        120
       ]
     },
     {
@@ -97,12 +202,12 @@
           }
         }
       },
-      "id": "de2d6d93-fdb3-41e1-bca2-b690fb640ab2",
+      "id": "35e1b86f-52b4-449c-80f3-d8d024ae98eb",
       "name": "Claude: enrich",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        880,
+        1320,
         0
       ],
       "retryOnFail": true,
@@ -112,14 +217,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const claudeJson = (r) => {\n  if (r.error) throw new Error(r.error.message || JSON.stringify(r.error));\n  const text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\n  const m = [...text.matchAll(/<json>([\\s\\S]*?)<\\/json>/g)].pop();\n  return JSON.parse(m ? m[1] : text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n};\n// Plug-in output: the lead exactly as it came in, plus `enrichment` (found data) or `error`.\nconst leads = $('Lead in').all().map(i => i.json);\nreturn $input.all().map((item, i) => {\n  try { return { json: { ...leads[i], enrichment: claudeJson(item.json) } }; }\n  catch (e) { return { json: { ...leads[i], error: e.message } }; }\n});\n"
+        "jsCode": "// Plug-in output: the lead exactly as it came in, plus `enrichment` (found data) or `error`.\n// Facts from their own website win over web search; if Claude fails, the website facts are still kept.\nconst lead = $('Lead in').first().json;\nconst site = $('Build request').first().json.site || {};\nconst r = $input.first().json;\nconst uniq = a => [...new Set(a.filter(Boolean))];\nconst social = re => (re.test(lead.website || '') ? lead.website : null);\nlet d = {}, failed = '';\ntry {\n  if (r.error) throw new Error(r.error.message || JSON.stringify(r.error));\n  const text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\n  const m = [...text.matchAll(/<json>([\\s\\S]*?)<\\/json>/g)].pop();\n  d = JSON.parse(m ? m[1] : text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n} catch (e) { failed = `Claude: ${e.message}`; }\nif (failed && !site.pages_read) return [{ json: { ...lead, error: failed } }];\nconst enrichment = { ...d,\n  email: site.emails?.[0] || d.email || null,\n  phone: d.phone || site.phones?.[0] || null,\n  instagram_url: site.instagram_url || social(/instagram\\.com/i) || d.instagram_url,\n  facebook_url: site.facebook_url || social(/facebook\\.com/i) || d.facebook_url,\n  other_profiles: uniq([...(site.other_profiles || []), ...(d.other_profiles || [])]),\n  photo_urls: uniq([...(site.photo_urls || []), ...(d.photo_urls || [])]).slice(0, 4),\n  website_emails: site.emails || [],\n  website_pages_read: site.pages_read || 0,\n  ...(failed ? { notes: failed } : {}) };\nreturn [{ json: { ...lead, enrichment } }];\n"
       },
-      "id": "7ae8eeef-1ec9-45a7-8304-d2ae9d65df6e",
+      "id": "94d03093-7014-48ea-9875-f50c7d820117",
       "name": "Read result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        1540,
         0
       ]
     }
@@ -137,6 +242,57 @@
       ]
     },
     "Settings": {
+      "main": [
+        [
+          {
+            "node": "Has own website?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has own website?": {
+      "main": [
+        [
+          {
+            "node": "Build crawl request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build crawl request": {
+      "main": [
+        [
+          {
+            "node": "Crawl4AI: read website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crawl4AI: read website": {
+      "main": [
+        [
+          {
+            "node": "Read website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read website": {
       "main": [
         [
           {

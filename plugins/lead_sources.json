@@ -1,0 +1,565 @@
+{
+  "id": "leadsource000001",
+  "name": "PLUGIN leads: sources",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "67b91308-0f54-48f0-a902-dd1a88179a04",
+      "name": "Lead in",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1cf5052d-6c65-4ea4-abbe-57b953ae6ce7",
+              "name": "aws_region",
+              "value": "ap-southeast-2",
+              "type": "string"
+            },
+            {
+              "id": "e07cf156-d546-46e8-9f44-427fe6e4d7cc",
+              "name": "nearby_categories",
+              "value": "plumbing,electrical,landscaping_services,specialty_trade_contractors,repair_and_maintenance_services,home_improvement",
+              "type": "string"
+            },
+            {
+              "id": "10f992a5-ac46-4bcf-b496-dbca4d92cbb0",
+              "name": "nearby_radius_m",
+              "value": 3000,
+              "type": "number"
+            },
+            {
+              "id": "f59c0257-e8d4-44d6-abf9-de25854114eb",
+              "name": "gmaps_url",
+              "value": "http://gmaps:8080",
+              "type": "string"
+            },
+            {
+              "id": "b3a74a66-e966-4469-b8af-8ee11bb28686",
+              "name": "gmaps_depth",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "677f1e70-5758-4fb2-baa7-db32d757bea7",
+              "name": "gmaps_emails",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "c497f013-8474-4b68-b0f4-2089c9c7412b",
+              "name": "gmaps_max_minutes",
+              "value": 10,
+              "type": "number"
+            },
+            {
+              "id": "a2ba6862-5795-4040-bbf9-1cf8261cda74",
+              "name": "claude_model",
+              "value": "PASTE_CLAUDE_MODEL_ID",
+              "type": "string"
+            },
+            {
+              "id": "23f2aad0-9737-4574-ab8d-bce37d29d1c4",
+              "name": "claude_max_results",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "ebeb414d-fcb5-47c9-8943-5ad6c1a0f059",
+              "name": "claude_max_searches",
+              "value": 5,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "69b066f7-393d-402a-afff-79ad13c45e82",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 4,
+        "output": "={{ ({ amazon_text: 0, amazon_nearby: 0, google_maps: 1, claude_search: 2 })[$json.source] ?? 3 }}"
+      },
+      "id": "e3850840-93c7-4117-82cd-0dc15140d51c",
+      "name": "Which source?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// amazon_text: search by words. amazon_nearby: every trade business around one point of the city grid.\nconst s = $json;\nconst nearby = s.source === 'amazon_nearby';\nconst body = nearby\n  ? { QueryPosition: [s.lng, s.lat], QueryRadius: s.nearby_radius_m, MaxResults: 100,\n      Filter: { IncludeCategories: String(s.nearby_categories).split(',').map(x => x.trim()).filter(Boolean) } }\n  : { QueryText: s.query, BiasPosition: [s.lng, s.lat], MaxResults: 100 };\nObject.assign(body, { AdditionalFeatures: ['Contact'], Language: 'en' }, s.next_token ? { NextToken: s.next_token } : {});\nreturn { json: { url: `https://places.geo.${s.aws_region}.amazonaws.com/v2/${nearby ? 'search-nearby' : 'search-text'}`, body } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "7a972dcf-3349-4e96-8c8d-7433a8f39c46",
+      "name": "Build Amazon request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "id": "7ff2734a-83c6-48db-9ce9-a6fccfec204e",
+      "name": "Amazon Location",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Businesses only (Amazon also returns towns and streets, e.g. \"Plano, TX\").\nconst r = $input.first().json;\nconst rows = (r.ResultItems || []).filter(p => !p.PlaceType || p.PlaceType === 'PointOfInterest').map(p => {\n  const c = p.Contacts || {};\n  return {\n    name: p.Title || '', category: (p.Categories || []).map(x => x.Name).join(', '),\n    address: p.Address?.Label || '', city: p.Address?.Locality || '',\n    phone: c.Phones?.[0]?.Value || '', website: c.Websites?.[0]?.Value || '', email: c.Emails?.[0]?.Value || '',\n    source: $('Lead in').first().json.source,\n  };\n});\nreturn [{ json: { rows, next_token: r.NextToken || '' } }];\n"
+      },
+      "id": "0b7b26ba-be3e-4d21-9804-7b87a1e7c11e",
+      "name": "Amazon rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.gmaps_url }}/api/v1/jobs",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.query, keywords: [$json.query], lang: 'en', depth: $json.gmaps_depth, email: $json.gmaps_emails, max_time: $json.gmaps_max_minutes * 60 }) }}",
+        "options": {}
+      },
+      "id": "a39f866a-83b3-4d7a-b6e9-9d0822307477",
+      "name": "Start scrape",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "id": "9b3981eb-dd03-4dd4-a24b-517df7a5593e",
+      "name": "Wait 20 s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Settings').first().json.gmaps_url }}/api/v1/jobs/{{ $('Start scrape').first().json.id }}",
+        "options": {}
+      },
+      "id": "ef9d15e0-6088-43de-b099-1df2474b2477",
+      "name": "Check job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "63725a19-e072-4ecb-91f1-3c0625bbdfa5",
+              "leftValue": "={{ ['ok', 'failed'].includes($json.Status) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e167ca86-c550-4d45-a8d2-08f9c452a3a5",
+      "name": "Job finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Settings').first().json.gmaps_url }}/api/v1/jobs/{{ $('Start scrape').first().json.id }}/download",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "a7b273cf-bf59-456c-81df-792c84eab7b4",
+      "name": "Download results",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The scraper's CSV -> lead rows. One job covers the whole search, so there is no next page.\nconst job = $('Check job').last().json;\nif (job.Status !== 'ok') throw new Error(`Google Maps scraper job ${job.ID} ended with status \"${job.Status}\"`);\nconst csv = String($input.first().json.data || '');\nconst table = [];\nlet row = [], f = '', q = false;\nfor (let i = 0; i < csv.length; i++) {\n  const c = csv[i];\n  if (q) { if (c === '\"') { if (csv[i + 1] === '\"') { f += '\"'; i++; } else q = false; } else f += c; }\n  else if (c === '\"') q = true;\n  else if (c === ',') { row.push(f); f = ''; }\n  else if (c === '\\n') { row.push(f); table.push(row); row = []; f = ''; }\n  else if (c !== '\\r') f += c;\n}\nif (f || row.length) { row.push(f); table.push(row); }\nconst [head = [], ...lines] = table;\nconst rows = lines.filter(l => l.length === head.length).map(l => {\n  const x = Object.fromEntries(head.map((h, i) => [h, l[i]]));\n  let a = {}; try { a = JSON.parse(x.complete_address || '{}'); } catch (e) {}\n  return { name: x.title || '', category: x.category || '', address: x.address || '', city: a.city || '',\n    phone: x.phone || '', website: x.website || '', email: (x.emails || '').split(',')[0].trim(), source: 'google_maps' };\n}).filter(r => r.name);\nreturn [{ json: { rows, next_token: '' } }];\n"
+      },
+      "id": "d1227c56-927d-4dca-ae59-0411b3ba8eb9",
+      "name": "Google rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Claude searches the web (directories, Facebook, Yelp...) for businesses that match this search.\nconst s = $json;\nconst content = `Find up to ${s.claude_max_results} small, owner-operated local businesses for this search: \"${s.query}\".\nSearch the web: Google Maps listings, Yelp, BBB, Angi, Nextdoor, Facebook pages and local directories.\nOnly real businesses that are operating now and list a phone number. Skip franchises, national chains and directory sites.\nPrefer businesses with no website or a weak one.\nReply with only a JSON array, no other text:\n[{\"name\":\"\",\"category\":\"\",\"address\":\"\",\"city\":\"\",\"phone\":\"\",\"website\":\"\",\"email\":\"\"}]\nUse \"\" for anything you could not find. Never guess a phone number or email.`;\nreturn { json: { claude_body: { model: s.claude_model, max_tokens: 8000,\n  tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: s.claude_max_searches }],\n  messages: [{ role: 'user', content }] } } };\n",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "4b194163-be25-4c57-b092-56d569dcc9cd",
+      "name": "Build Claude request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.claude_body) }}",
+        "options": {
+          "timeout": 300000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "203253e7-230c-4694-b2aa-bff573771e3f",
+      "name": "Claude: find businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Claude's JSON list -> lead rows.\nconst r = $input.first().json;\nif (r.error) throw new Error(`Claude search: ${r.error.message || JSON.stringify(r.error)}`);\nconst text = (r.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\nlet list;\ntry { list = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)); }\ncatch (e) { throw new Error(`Claude search: no business list in the reply (stop_reason: ${r.stop_reason})`); }\nconst rows = list.filter(x => x && x.name).map(x => ({\n  name: x.name, category: x.category || '', address: x.address || '', city: x.city || '',\n  phone: x.phone || '', website: x.website || '', email: x.email || '', source: 'claude_search' }));\nreturn [{ json: { rows, next_token: '' } }];\n"
+      },
+      "id": "89eaf83b-e6fc-4518-aeee-96a8c1881b27",
+      "name": "Claude rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "throw new Error(`Unknown lead source \"${$json.source}\". Use amazon_text, amazon_nearby, google_maps or claude_search.`);\n"
+      },
+      "id": "8a1ce90c-8934-413a-8fc9-087cf0a7edd6",
+      "name": "Unknown source",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        400
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e21dc9d5-599b-464b-b5f0-ba96160bff85",
+      "name": "Rows out",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1980,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Lead in": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Which source?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which source?": {
+      "main": [
+        [
+          {
+            "node": "Build Amazon request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start scrape",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Claude request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Amazon request": {
+      "main": [
+        [
+          {
+            "node": "Amazon Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Amazon Location": {
+      "main": [
+        [
+          {
+            "node": "Amazon rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Amazon rows": {
+      "main": [
+        [
+          {
+            "node": "Rows out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start scrape": {
+      "main": [
+        [
+          {
+            "node": "Wait 20 s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 20 s": {
+      "main": [
+        [
+          {
+            "node": "Check job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check job": {
+      "main": [
+        [
+          {
+            "node": "Job finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job finished?": {
+      "main": [
+        [
+          {
+            "node": "Download results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 20 s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download results": {
+      "main": [
+        [
+          {
+            "node": "Google rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google rows": {
+      "main": [
+        [
+          {
+            "node": "Rows out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude request": {
+      "main": [
+        [
+          {
+            "node": "Claude: find businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: find businesses": {
+      "main": [
+        [
+          {
+            "node": "Claude rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude rows": {
+      "main": [
+        [
+          {
+            "node": "Rows out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
